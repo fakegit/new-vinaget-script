@@ -5,13 +5,13 @@ class dl_1fichier_com extends Download
     public function CheckAcc($cookie)
     {
         $data = $this->lib->curl("https://1fichier.com/console/abo.pl", $cookie, "");
-        if (stristr($data, "subscription is valid until")) {
-            return array(true, "Until " . $this->lib->cut_str($data, '<span style="font-weight:bold">', '</span>'));
-        } elseif (stristr($data, ">Identification")) {
-            return array(false, "accinvalid");
+        if (preg_match('/class="tier current".*?class="tier-name">\s*([^<]+).*?class="tier-badge">[^<]*until\s+([^<]+)/is', $data, $match)) {
+            return array(true, trim($match[1]) . " Plan - Until " . trim($match[2]));
+        } elseif (stristr($data, "<div class=\"tier\">")) {
+            return array(false, "accfree");
         }
 
-        return array(false, "accfree");
+        return array(false, "accinvalid");
     }
 
     public function Login($user, $pass)
@@ -49,5 +49,5 @@ class dl_1fichier_com extends Download
  * New Vinaget by LTT
  * Version: 3.3 LTS
  * 1fichier.com Download Plugin
- * Date: 19.11.2025
+ * Date: 12.09.2026
  */

@@ -5,67 +5,84 @@ class dl_turbobit_net extends Download
 
     public function CheckAcc($cookie)
     {
-        $data = $this->lib->curl("https://turbobit.net/?site_version=1&from_mirror=1", $cookie, "");
-        if (stristr($data, "HTTP/1.1 307 Temporary Redirect") && $this->isRedirect($data)) {
-            $data = $this->lib->curl(trim($this->redirect), $cookie, 0);
+        $data = $this->lib->curl("https://app.turbobit.net/api/user/info", $cookie, "", 0, 1);
+        $json = @json_decode($data, true);
+
+        if (!is_array($json) || !isset($json['premium']['status'])) {
+            return array(false, "accinvalid");
         }
 
-        if (stristr($data, 'Turbo access till')) {
-            if (stristr($data, '> limit of premium downloads')) {
-                return array(true, "LimitAcc");
-            } else {
-                return array(true, "Until " . $this->lib->cut_str($data, '>Turbo access till ', '</span></a>'));
-            }
-
-        } else if (stristr($data, '<u>Turbo Access</u> denied.')) {
+        if ($json['premium']['status'] === 'active') {
+            $expired_at = isset($json['premium']['expiredAt']) ? $json['premium']['expiredAt'] : '';
+            return array(true, "Until " . $expired_at);
+        } elseif ($json['premium']['status'] === 'inactive') {
             return array(false, "accfree");
         } else {
             return array(false, "accinvalid");
         }
-
     }
 
     public function Login($user, $pass)
     {
-        $data = $this->lib->curl("https://turbobit.net/login", "user_lang=en", "");
-        $cook = $this->lib->GetCookies($data);
-        $data = $this->lib->curl("https://turbobit.net/user/login", $cook, "user[login]={$user}&user[pass]={$pass}&user[captcha_type]=&user[captcha_subtype]=&user[submit]=Sign+in&user[memory]=on");
-        if (stristr($data, "HTTP/1.1 307 Temporary Redirect") && $this->isRedirect($data)) {
-            $this->lib->curl(trim($this->redirect), "user_lang=en", "user[login]={$user}&user[pass]={$pass}&user[captcha_type]=&user[captcha_subtype]=&user[submit]=Sign+in&user[memory]=on");
-        }
+        $payload = json_encode([
+            'email'           => $user,
+            'password'        => $pass,
+            'captcha'         => true,
+            'captchaResponse' => '',
+            'captchaIndex'    => 0,
+        ]);
 
-        $cookie = "user_lang=en;" . $this->lib->GetCookies($data);
-
+        $data = $this->lib->curl("https://app.turbobit.net/api/auth/login", "", $payload, 1, 1);
+        $cookie = "user_lang=en; " . $this->lib->GetCookies($data);
         return array(true, $cookie);
     }
 
     public function Leech($url)
     {
-        if (strpos($url, "/download/free/") == true) {
+        if (strpos($url, "/download/free/") !== false) {
             $gach = explode('/', $url);
             $url = "https://turbobit.net/{$gach[5]}.html";
         }
-        $data = $this->lib->curl($url . '?site_version=1&from_mirror=1', $this->lib->cookie, "");
 
-        if (stristr($data, "HTTP/1.1 307 Temporary Redirect") && $this->isRedirect($data)) {
-            $data = $this->lib->curl(trim($this->redirect), $this->lib->cookie, "");
+        // Extract file ID
+        $gach = explode('?', $url);
+        $clean_url = $gach[0];
+        $parts = explode('/', $clean_url);
+        $file_id = preg_replace('/\.html?$/i', '', end($parts));
+        $file_id = str_replace('#', '', $file_id);
+
+        $api_payload = json_encode([
+            'fileId' => $file_id,
+            'referrer' => null,
+            'site' => null,
+            'shortDomain' => '',
+        ]);
+        $api_data = $this->lib->curl('https://app.turbobit.net/api/download/info', $this->lib->cookie, $api_payload, 0, 1);
+        $api_json = @json_decode($api_data, true);
+
+        if (!$api_json || isset($api_json['error_name'])) {
+            $error_name = isset($api_json['error_name']) ? $api_json['error_name'] : '';
+            if (stristr($error_name, 'site is temporarily unavailable')) {
+                $this->error("dead", true, false, 2);
+            } elseif (stristr($error_name, 'limit of premium downloads')) {
+                $this->error("LimitAcc");
+            } elseif (stristr($error_name, 'denied')) {
+                $this->error("blockAcc", true, false);
+            } else {
+                $this->error("dead", true, false, 2);
+            }
+            return false;
         }
-        $this->save($this->lib->GetCookies($data));
-        if (stristr($data, 'site is temporarily unavailable') || stristr($data, 'This document was not found in System')) {
-            $this->error("dead", true, false, 2);
-        } elseif (stristr($data, 'Please wait, searching file') || stristr($data, 'The file is not avaliable now because of technical problems.')) {
-            $this->error("dead", true, false, 2);
-        } elseif (stristr($data, 'You have reached the <a href=\'/user/messages\'>daily</a> limit of premium downloads') || stristr($data, 'You have reached the <a href=\'/user/messages\'>monthly</a> limit of premium downloads')) {
-            $this->error("LimitAcc");
-        } elseif (stristr($data, '<u>Turbo Access</u> denied')) {
-            $this->error("blockAcc", true, false);
-        } elseif (preg_match("/<a[^>]+href='(https:\/\/turbobit\.net\/download\/redirect\/[^']+)'[^>]*>\s*<b>Download file<\/b>/i", $data, $match)) {
-            $link = trim($match[1]);
+
+        if (!empty($api_json['downloadUrls']) && is_array($api_json['downloadUrls'])) {
+            $link = $api_json['downloadUrls'][0];
             $data = $this->lib->curl($link, $this->lib->cookie, "");
             if ($this->isRedirect($data)) {
                 return trim($this->redirect);
             }
+            return $link;
         }
+
         return false;
     }
 
@@ -76,5 +93,5 @@ class dl_turbobit_net extends Download
  * New Vinaget by LTT
  * Version: 3.3 LTS
  * Turbobit.net Download Plugin
- * Date: 11.11.2020
+ * Date: 08.04.2026
  */

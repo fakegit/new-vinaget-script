@@ -1,3 +1,6 @@
+v48:
+- Add upstore.net, daofile.com
+- Update 1fichier.com, turbobit.net
 v47:
 - Update 1fichier.com, alfafile.net, filefactory.com, filejoker.net, hitfile.net, katfile.cloud
 v46:
